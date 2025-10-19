@@ -229,6 +229,7 @@ async def get_latest_itinerary():
     if last_itinerary_json is None:
         from fastapi import Response
         return Response(status_code=204)
+    print(f"Returning itinerary with {len(last_itinerary_json.get('days', []))} days")
     return last_itinerary_json
 
 @app.websocket("/ws/chat")
@@ -334,34 +335,105 @@ async def websocket_endpoint(websocket: WebSocket):
                         transcript_lines.append(f"{role}: {content}")
                     context_blob = "\n".join(transcript_lines)
 
+                    # Include route summary if available
+                    route_context = ""
+                    if last_route_summary:
+                        route_context = (
+                            f"\n\nAvailable Route Information:\n"
+                            f"- Origin: {last_route_summary['origin']}\n"
+                            f"- Destination: {last_route_summary['destination']}\n"
+                            f"- Duration: {last_route_summary['duration_minutes']} minutes\n"
+                            f"- Distance: {last_route_summary['distance_miles']} miles"
+                        )
+
                     prompt = (
-                        "Create a travel itinerary JSON. Use this EXACT format:\n"
+                        "You are a travel planner. Create a detailed multi-day travel itinerary in JSON format.\n\n"
+                        "CRITICAL RULES:\n"
+                        "1. If user asks for N days, create EXACTLY N day objects in the days array\n"
+                        "2. Each day must have 3-5 activity legs (meals, sightseeing, transport, etc.)\n"
+                        "3. Use realistic and DIFFERENT values for duration_minutes and distance_miles\n"
+                        "4. Include various transport modes: car, walk, bike, bus, train\n"
+                        "5. Create a logical day progression with morning, afternoon, and evening activities\n"
+                        "6. Use actual locations from the context provided\n\n"
+                        "EXAMPLE for a 2-day trip:\n"
                         "{\n"
                         "  \"type\": \"itinerary\",\n"
-                        "  \"legs\": [\n"
+                        "  \"days\": [\n"
                         "    {\n"
-                        "      \"mode\": \"car\",\n"
-                        "      \"from\": { \"name\": \"San Diego\" },\n"
-                        "      \"to\": { \"name\": \"San Francisco\" },\n"
-                        "      \"duration_minutes\": 510,\n"
-                        "      \"distance_miles\": 500\n"
+                        "      \"day\": 1,\n"
+                        "      \"date\": \"2025-10-20\",\n"
+                        "      \"title\": \"Day 1: Arrival & Exploration\",\n"
+                        "      \"legs\": [\n"
+                        "        {\n"
+                        "          \"mode\": \"car\",\n"
+                        "          \"from\": { \"name\": \"San Diego\", \"time\": \"08:00\" },\n"
+                        "          \"to\": { \"name\": \"Los Angeles\", \"time\": \"10:30\" },\n"
+                        "          \"duration_minutes\": 150,\n"
+                        "          \"distance_miles\": 120,\n"
+                        "          \"description\": \"Morning drive to Los Angeles\"\n"
+                        "        },\n"
+                        "        {\n"
+                        "          \"mode\": \"walk\",\n"
+                        "          \"from\": { \"name\": \"Hotel\", \"time\": \"11:00\" },\n"
+                        "          \"to\": { \"name\": \"Santa Monica Pier\", \"time\": \"11:20\" },\n"
+                        "          \"duration_minutes\": 20,\n"
+                        "          \"distance_miles\": 0.8,\n"
+                        "          \"description\": \"Walk to Santa Monica Pier\"\n"
+                        "        },\n"
+                        "        {\n"
+                        "          \"mode\": \"walk\",\n"
+                        "          \"from\": { \"name\": \"Santa Monica Pier\", \"time\": \"14:00\" },\n"
+                        "          \"to\": { \"name\": \"Third Street Promenade\", \"time\": \"14:15\" },\n"
+                        "          \"duration_minutes\": 15,\n"
+                        "          \"distance_miles\": 0.5,\n"
+                        "          \"description\": \"Explore shopping district\"\n"
+                        "        }\n"
+                        "      ]\n"
+                        "    },\n"
+                        "    {\n"
+                        "      \"day\": 2,\n"
+                        "      \"date\": \"2025-10-21\",\n"
+                        "      \"title\": \"Day 2: City Sightseeing\",\n"
+                        "      \"legs\": [\n"
+                        "        {\n"
+                        "          \"mode\": \"car\",\n"
+                        "          \"from\": { \"name\": \"Hotel\", \"time\": \"09:00\" },\n"
+                        "          \"to\": { \"name\": \"Griffith Observatory\", \"time\": \"09:30\" },\n"
+                        "          \"duration_minutes\": 30,\n"
+                        "          \"distance_miles\": 12,\n"
+                        "          \"description\": \"Drive to Griffith Observatory\"\n"
+                        "        },\n"
+                        "        {\n"
+                        "          \"mode\": \"walk\",\n"
+                        "          \"from\": { \"name\": \"Griffith Observatory\", \"time\": \"12:00\" },\n"
+                        "          \"to\": { \"name\": \"Hiking Trail\", \"time\": \"13:00\" },\n"
+                        "          \"duration_minutes\": 60,\n"
+                        "          \"distance_miles\": 2.5,\n"
+                        "          \"description\": \"Nature hike\"\n"
+                        "        }\n"
+                        "      ]\n"
                         "    }\n"
                         "  ],\n"
                         "  \"summary\": {\n"
-                        "    \"total_duration_minutes\": 510,\n"
-                        "    \"total_distance_miles\": 500\n"
+                        "    \"total_days\": 2,\n"
+                        "    \"total_duration_minutes\": 275,\n"
+                        "    \"total_distance_miles\": 135.8\n"
                         "  }\n"
-                        "}\n"
-                        f"Context: {context_blob}\n"
-                        f"User request: {user_message}\n"
+                        "}\n\n"
+                        f"Conversation Context:\n{context_blob}{route_context}\n\n"
+                        f"User Request: {user_message}\n\n"
+                        "IMPORTANT: Read the user request carefully and create the exact number of days requested.\n"
+                        "If they say '5 day itinerary', create 5 day objects. If they say '3 days', create 3 day objects.\n"
+                        "Each day should have 3-5 different activities with realistic times and locations.\n"
+                        "Make sure duration_minutes and distance_miles are DIFFERENT realistic values.\n\n"
                         "Return ONLY valid JSON, no other text."
                     )
 
                     gemini_response = model.generate_content(
                         prompt,
                         generation_config=genai.types.GenerationConfig(
-                            temperature=0.2,
-                            max_output_tokens=800,
+                            temperature=0.3,
+                            max_output_tokens=4000,
                             response_mime_type="application/json",
                         )
                     )
@@ -405,19 +477,39 @@ async def websocket_endpoint(websocket: WebSocket):
                         except _json.JSONDecodeError as e:
                             print(f"JSON parse error: {e}")
                             print(f"Raw text that failed: {raw}")
-                            # Create a fallback itinerary
+                            # Create a fallback itinerary with proper structure
+                            fallback_legs = []
+                            if last_route_summary:
+                                fallback_legs.append({
+                                    "mode": "car",
+                                    "from": {"name": last_route_summary['origin'], "time": "09:00"},
+                                    "to": {"name": last_route_summary['destination'], "time": "12:00"},
+                                    "duration_minutes": last_route_summary['duration_minutes'],
+                                    "distance_miles": last_route_summary['distance_miles'],
+                                    "description": f"Drive from {last_route_summary['origin']} to {last_route_summary['destination']}"
+                                })
+                            else:
+                                fallback_legs.append({
+                                    "mode": "car",
+                                    "from": {"name": "Start", "time": "09:00"},
+                                    "to": {"name": "Destination", "time": "12:00"},
+                                    "duration_minutes": 180,
+                                    "distance_miles": 100,
+                                    "description": "Travel to destination"
+                                })
+                            
                             parsed = {
                                 "type": "itinerary",
-                                "legs": [{
-                                    "mode": "car",
-                                    "from": {"name": "Unknown"},
-                                    "to": {"name": "Unknown"},
-                                    "duration_minutes": 60,
-                                    "distance_miles": 50
+                                "days": [{
+                                    "day": 1,
+                                    "date": datetime.utcnow().strftime("%Y-%m-%d"),
+                                    "title": "Day 1: Travel",
+                                    "legs": fallback_legs
                                 }],
                                 "summary": {
-                                    "total_duration_minutes": 60,
-                                    "total_distance_miles": 50
+                                    "total_days": 1,
+                                    "total_duration_minutes": fallback_legs[0]["duration_minutes"],
+                                    "total_distance_miles": fallback_legs[0]["distance_miles"]
                                 }
                             }
                     
@@ -431,47 +523,41 @@ async def websocket_endpoint(websocket: WebSocket):
             else:
                 # Regular Gemini response for non-travel questions
                 try:
-                    # If user asks about duration and we have last_route_summary, answer directly
-                    if is_how_long_followup(user_message) and last_route_summary:
-                        mins = last_route_summary["duration_minutes"]
-                        miles = last_route_summary["distance_miles"]
-                        response = f"Approximately {mins} minutes (~{(mins/60):.1f} hours), distance about {miles} miles."
+                    # Build compact inline transcript + optional last route summary
+                    transcript_lines = []
+                    for t in conversation_history[-10:]:
+                        role = t.get("role", "user").upper()
+                        content = t.get("content", "")
+                        transcript_lines.append(f"{role}: {content}")
+                    context_blob = "\n".join(transcript_lines)
+
+                    route_hint = ""
+                    if last_route_summary:
+                        route_hint = (
+                            f"\nLastRoute: origin={last_route_summary['origin']}, "
+                            f"destination={last_route_summary['destination']}, "
+                            f"duration_minutes={last_route_summary['duration_minutes']}, "
+                            f"distance_miles={last_route_summary['distance_miles']}"
+                        )
+
+                    prompt = (
+                        "You are a helpful assistant. Use the recent transcript to maintain context.\n" \
+                        f"Transcript:\n{context_blob}{route_hint}\n" \
+                        f"USER: {user_message}\nASSISTANT:"
+                    )
+
+                    gemini_response = model.generate_content(
+                        prompt,
+                        generation_config=genai.types.GenerationConfig(
+                            temperature=0.7,
+                            max_output_tokens=1000,
+                        )
+                    )
+                    
+                    if gemini_response.text:
+                        response = gemini_response.text
                     else:
-                        # Build compact inline transcript + optional last route summary
-                        transcript_lines = []
-                        for t in conversation_history[-10:]:
-                            role = t.get("role", "user").upper()
-                            content = t.get("content", "")
-                            transcript_lines.append(f"{role}: {content}")
-                        context_blob = "\n".join(transcript_lines)
-
-                        route_hint = ""
-                        if last_route_summary:
-                            route_hint = (
-                                f"\nLastRoute: origin={last_route_summary['origin']}, "
-                                f"destination={last_route_summary['destination']}, "
-                                f"duration_minutes={last_route_summary['duration_minutes']}, "
-                                f"distance_miles={last_route_summary['distance_miles']}"
-                            )
-
-                        prompt = (
-                            "You are a helpful assistant. Use the recent transcript to maintain context.\n" \
-                            f"Transcript:\n{context_blob}{route_hint}\n" \
-                            f"USER: {user_message}\nASSISTANT:"
-                        )
-
-                        gemini_response = model.generate_content(
-                            prompt,
-                            generation_config=genai.types.GenerationConfig(
-                                temperature=0.7,
-                                max_output_tokens=1000,
-                            )
-                        )
-                        
-                        if gemini_response.text:
-                            response = gemini_response.text
-                        else:
-                            response = "I understand your question, but I'm having trouble generating a response right now. Please try rephrasing your question."
+                        response = "I understand your question, but I'm having trouble generating a response right now. Please try rephrasing your question."
                 except Exception as e:
                     print(f"Gemini error: {e}")
                     response = "I understand your question, but I'm having trouble generating a response right now. Please try rephrasing your question."

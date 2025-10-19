@@ -87,6 +87,14 @@ export function ChatPanel() {
     setUploadedFiles([]);
     setIsLoading(true);
 
+    // Check if this is an itinerary request and trigger fast polling
+    const lowerContent = content.toLowerCase();
+    if (lowerContent.includes('itinerary') || lowerContent.includes('plan') || lowerContent.includes('trip')) {
+      console.log('Itinerary request detected, triggering fast polling');
+      // Dispatch custom event to notify DetailsPane to start fast polling
+      window.dispatchEvent(new CustomEvent('itinerary-request', { detail: { timestamp: Date.now() } }));
+    }
+
     try {
       const response = await wsClient.sendMessage(content);
       setMessages((prev) => [...prev, response]);
