@@ -7,3 +7,6 @@ python-dotenv==1.0.1
 # WebSocket Server for Frontend
 fastapi==0.115.6
 uvicorn==0.32.1
+
+# Mapbox Integration
+requests==2.31.0
