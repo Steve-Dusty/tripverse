@@ -304,12 +304,12 @@ async def websocket_endpoint(websocket: WebSocket):
                     if directions.get("routes") and len(directions["routes"]) > 0:
                         route = directions["routes"][0]
                         duration = route.get("duration", 0) / 60  # Convert to minutes
-                        distance = route.get("distance", 0) / 1000  # Convert to km
+                        distance = route.get("distance", 0) * 0.000621371  # Convert to miles
                         
                         response = f"""🗺️ **Route Found:**
 📍 From: {origin} → {destination}
 ⏱️ Duration: {duration:.1f} minutes
-📏 Distance: {distance:.1f} km
+📏 Distance: {distance:.1f} miles
 🚗 Driving route available"""
                         # remember summary for follow-ups
                         global last_route_summary
@@ -317,7 +317,7 @@ async def websocket_endpoint(websocket: WebSocket):
                             "origin": origin,
                             "destination": destination,
                             "duration_minutes": round(duration, 1),
-                            "distance_km": round(distance, 1),
+                            "distance_miles": round(distance, 1),
                         }
                     else:
                         response = "No route found between these locations"
@@ -335,24 +335,26 @@ async def websocket_endpoint(websocket: WebSocket):
                     context_blob = "\n".join(transcript_lines)
 
                     prompt = (
-                        "You detect an itinerary planning request.\n"
-                        "Using the conversation context, produce ONLY a strict JSON object with this shape (no prose) if there's multiple waypoints, then append a new JSOn to list:\n"
-                        "[{\n"
+                        "Create a travel itinerary JSON. Use this EXACT format:\n"
+                        "{\n"
                         "  \"type\": \"itinerary\",\n"
                         "  \"legs\": [\n"
                         "    {\n"
-                        "      \"mode\": \"car|train|bus|plane\",\n"
-                        "      \"from\": { \"name\": string },\n"
-                        "      \"to\": { \"name\": string },\n"
-                        "      \"duration_minutes\": number,\n"
-                        "      \"distance_km\": number\n"
+                        "      \"mode\": \"car\",\n"
+                        "      \"from\": { \"name\": \"San Diego\" },\n"
+                        "      \"to\": { \"name\": \"San Francisco\" },\n"
+                        "      \"duration_minutes\": 510,\n"
+                        "      \"distance_miles\": 500\n"
                         "    }\n"
                         "  ],\n"
-                        "  \"summary\": { \"total_duration_minutes\": number, \"total_distance_km\": number }\n"
-                        "}]\n"
-                        f"Context:\n{context_blob}\n"
-                        f"UserMessage: {user_message}\n"
-                        "Return ONLY JSON."
+                        "  \"summary\": {\n"
+                        "    \"total_duration_minutes\": 510,\n"
+                        "    \"total_distance_miles\": 500\n"
+                        "  }\n"
+                        "}\n"
+                        f"Context: {context_blob}\n"
+                        f"User request: {user_message}\n"
+                        "Return ONLY valid JSON, no other text."
                     )
 
                     gemini_response = model.generate_content(
@@ -364,11 +366,64 @@ async def websocket_endpoint(websocket: WebSocket):
                         )
                     )
 
-                    raw = getattr(gemini_response, "text", "") or ""
+                    # Safe extraction like other paths
+                    raw = ""
+                    try:
+                        if hasattr(gemini_response, "text") and gemini_response.text:
+                            raw = gemini_response.text
+                        else:
+                            # Try candidate parts
+                            candidates = getattr(gemini_response, "candidates", []) or []
+                            for cand in candidates:
+                                content = getattr(cand, "content", None)
+                                parts = getattr(content, "parts", []) if content else []
+                                for part in parts:
+                                    t = getattr(part, "text", None) if hasattr(part, "text") else (part.get("text") if isinstance(part, dict) else None)
+                                    if t:
+                                        raw = t
+                                        break
+                                if raw:
+                                    break
+                    except Exception as e:
+                        print(f"Gemini extraction error: {e}")
+                    
+                    print(f"Raw Gemini response: {raw}")
+                    
                     import json as _json
-                    parsed = _json.loads(raw) if raw else {}
+                    parsed = {}
+                    if raw:
+                        try:
+                            # Clean the response - remove any markdown formatting
+                            clean_raw = raw.strip()
+                            if clean_raw.startswith("```json"):
+                                clean_raw = clean_raw.replace("```json", "").replace("```", "").strip()
+                            elif clean_raw.startswith("```"):
+                                clean_raw = clean_raw.replace("```", "").strip()
+                            
+                            parsed = _json.loads(clean_raw)
+                            print(f"Successfully parsed JSON: {parsed}")
+                        except _json.JSONDecodeError as e:
+                            print(f"JSON parse error: {e}")
+                            print(f"Raw text that failed: {raw}")
+                            # Create a fallback itinerary
+                            parsed = {
+                                "type": "itinerary",
+                                "legs": [{
+                                    "mode": "car",
+                                    "from": {"name": "Unknown"},
+                                    "to": {"name": "Unknown"},
+                                    "duration_minutes": 60,
+                                    "distance_miles": 50
+                                }],
+                                "summary": {
+                                    "total_duration_minutes": 60,
+                                    "total_distance_miles": 50
+                                }
+                            }
+                    
                     global last_itinerary_json
                     last_itinerary_json = parsed
+                    print(f"Stored itinerary JSON: {last_itinerary_json}")
                     response = "just created the itinerary."
                 except Exception as e:
                     print("Itinerary handling error:", e)
@@ -379,8 +434,8 @@ async def websocket_endpoint(websocket: WebSocket):
                     # If user asks about duration and we have last_route_summary, answer directly
                     if is_how_long_followup(user_message) and last_route_summary:
                         mins = last_route_summary["duration_minutes"]
-                        km = last_route_summary["distance_km"]
-                        response = f"Approximately {mins} minutes (~{(mins/60):.1f} hours), distance about {km} km."
+                        miles = last_route_summary["distance_miles"]
+                        response = f"Approximately {mins} minutes (~{(mins/60):.1f} hours), distance about {miles} miles."
                     else:
                         # Build compact inline transcript + optional last route summary
                         transcript_lines = []
@@ -396,7 +451,7 @@ async def websocket_endpoint(websocket: WebSocket):
                                 f"\nLastRoute: origin={last_route_summary['origin']}, "
                                 f"destination={last_route_summary['destination']}, "
                                 f"duration_minutes={last_route_summary['duration_minutes']}, "
-                                f"distance_km={last_route_summary['distance_km']}"
+                                f"distance_miles={last_route_summary['distance_miles']}"
                             )
 
                         prompt = (

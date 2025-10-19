@@ -112,7 +112,7 @@ export function MapView({ waypoints, selectedItinerary }: MapViewProps) {
           type: 'line',
           source: 'route',
           layout: { 'line-join': 'round', 'line-cap': 'round' },
-          paint: { 'line-color': '#4F46E5', 'line-width': 5 },
+          paint: { 'line-color': '#4F46E5', 'line-width': 12 },
         } as any);
       }
     }
