@@ -78,17 +78,25 @@ chat_proto = Protocol("ChatProtocol", "0.1.0")
 # Conversation history
 conversation_history = []
 last_directions_json = None
+last_route_summary = None
 
 def is_travel_question(message: str) -> bool:
     """Check if the message is travel-related"""
     travel_keywords = [
-        "travel", "trip", "journey", "route", "directions", "how to get to",
-        "from", "to", "go to", "drive to", "walk to", "bike to", "fly to",
-        "distance", "time", "duration", "map", "location", "address",
-        "geocode", "coordinates", "latitude", "longitude"
+        "travel"
     ]
     message_lower = message.lower()
     return any(keyword in message_lower for keyword in travel_keywords)
+
+def is_how_long_followup(message: str) -> bool:
+    m = message.lower()
+    return (
+        "how long" in m or
+        "how much time" in m or
+        "duration" in m or
+        "how many minutes" in m or
+        "how many hours" in m
+    )
 
 
 async def chat_with_gemini_and_mapbox(user_message, ctx: Context = None):
@@ -292,6 +300,14 @@ async def websocket_endpoint(websocket: WebSocket):
 ⏱️ Duration: {duration:.1f} minutes
 📏 Distance: {distance:.1f} km
 🚗 Driving route available"""
+                        # remember summary for follow-ups
+                        global last_route_summary
+                        last_route_summary = {
+                            "origin": origin,
+                            "destination": destination,
+                            "duration_minutes": round(duration, 1),
+                            "distance_km": round(distance, 1),
+                        }
                     else:
                         response = "No route found between these locations"
                 except Exception as e:
@@ -300,18 +316,47 @@ async def websocket_endpoint(websocket: WebSocket):
             else:
                 # Regular Gemini response for non-travel questions
                 try:
-                    gemini_response = model.generate_content(
-                        user_message,
-                        generation_config=genai.types.GenerationConfig(
-                            temperature=0.7,
-                            max_output_tokens=1000,
-                        )
-                    )
-                    
-                    if gemini_response.text:
-                        response = gemini_response.text
+                    # If user asks about duration and we have last_route_summary, answer directly
+                    if is_how_long_followup(user_message) and last_route_summary:
+                        mins = last_route_summary["duration_minutes"]
+                        km = last_route_summary["distance_km"]
+                        response = f"Approximately {mins} minutes (~{(mins/60):.1f} hours), distance about {km} km."
                     else:
-                        response = "I understand your question, but I'm having trouble generating a response right now. Please try rephrasing your question."
+                    # Build compact inline transcript + optional last route summary
+                    transcript_lines = []
+                    for t in conversation_history[-10:]:
+                        role = t.get("role", "user").upper()
+                        content = t.get("content", "")
+                        transcript_lines.append(f"{role}: {content}")
+                    context_blob = "\n".join(transcript_lines)
+
+                    route_hint = ""
+                    if last_route_summary:
+                        route_hint = (
+                            f"\nLastRoute: origin={last_route_summary['origin']}, "
+                            f"destination={last_route_summary['destination']}, "
+                            f"duration_minutes={last_route_summary['duration_minutes']}, "
+                            f"distance_km={last_route_summary['distance_km']}"
+                        )
+
+                    prompt = (
+                        "You are a helpful assistant. Use the recent transcript to maintain context.\n" \
+                        f"Transcript:\n{context_blob}{route_hint}\n" \
+                        f"USER: {user_message}\nASSISTANT:"
+                    )
+
+                        gemini_response = model.generate_content(
+                            prompt,
+                            generation_config=genai.types.GenerationConfig(
+                                temperature=0.7,
+                                max_output_tokens=1000,
+                            )
+                        )
+                        
+                        if gemini_response.text:
+                            response = gemini_response.text
+                        else:
+                            response = "I understand your question, but I'm having trouble generating a response right now. Please try rephrasing your question."
                 except Exception as e:
                     print(f"Gemini error: {e}")
                     response = "I understand your question, but I'm having trouble generating a response right now. Please try rephrasing your question."
@@ -326,6 +371,8 @@ async def websocket_endpoint(websocket: WebSocket):
             }
             
             await websocket.send_text(json.dumps(response_data))
+            # Record assistant reply into conversation history to keep context
+            conversation_history.append({"role": "assistant", "content": response})
             
     except WebSocketDisconnect:
         print("WebSocket disconnected")
