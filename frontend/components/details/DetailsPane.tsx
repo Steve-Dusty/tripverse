@@ -124,255 +124,188 @@ export function DetailsPane({
       </div>
 
       <div className="flex-1 overflow-y-auto">
-        <TabsContent value="itinerary" className="p-4 space-y-6">
+        <TabsContent value="itinerary" className="p-4 space-y-4">
           {itineraries.length > 0 && itineraries.some(it => it && Object.keys(it).length > 0) ? (
             itineraries.map((it, idx) => {
-              // Support both old flat legs structure and new days structure
               const days = it.days || [];
-              const flatLegs = it.legs || [];
               const summary = it.summary || {};
               
-              // Calculate totals
-              let totalMinutes = summary.total_duration_minutes;
-              let totalMiles = summary.total_distance_miles;
-              let totalDays = summary.total_days || days.length;
+              console.log('=== RENDERING ITINERARY ===');
+              console.log('Days:', days.length, days);
               
-              // Fallback calculation if summary is incomplete
-              if (!totalMinutes || !totalMiles) {
-                if (days.length > 0) {
-                  // Calculate from days structure
-                  totalMinutes = days.reduce((acc: number, day: any) => {
-                    const dayLegs = day.legs || [];
-                    return acc + dayLegs.reduce((legAcc: number, l: any) => legAcc + (l.duration_minutes || 0), 0);
-                  }, 0);
-                  totalMiles = days.reduce((acc: number, day: any) => {
-                    const dayLegs = day.legs || [];
-                    return acc + dayLegs.reduce((legAcc: number, l: any) => legAcc + (l.distance_miles || 0), 0);
-                  }, 0);
-                } else {
-                  // Calculate from flat legs
-                  totalMinutes = flatLegs.reduce((acc: number, l: any) => acc + (l.duration_minutes || 0), 0);
-                  totalMiles = flatLegs.reduce((acc: number, l: any) => acc + (l.distance_miles || 0), 0);
-                  totalDays = Math.ceil(totalMinutes / (24 * 60));
-                }
+              if (days.length === 0) {
+                return (
+                  <div key={idx} className="text-center py-8 text-gray-500">
+                    No itinerary data available
+                  </div>
+                );
               }
               
-              const totalLegsCount = days.length > 0 
-                ? days.reduce((acc: number, day: any) => acc + (day.legs || []).length, 0)
-                : flatLegs.length;
-              
               return (
-                <div key={idx} className="space-y-6">
-                  {/* Hero Summary Card */}
-                  <div className="bg-white border-2 border-gray-200 rounded-xl p-6 shadow-lg">
-                    <div className="flex items-center justify-between mb-4">
-                      <h3 className="font-bold text-2xl text-gray-800">Your Amazing Journey</h3>
-                      <div className="flex items-center gap-4 text-sm text-gray-600">
-                        <span className="flex items-center gap-2 bg-blue-50 px-3 py-1 rounded-full">
-                          <Clock className="h-4 w-4 text-blue-600" />
-                          {Math.floor(totalMinutes / 60)}h {Math.round(totalMinutes % 60)}m
-                        </span>
-                        <span className="flex items-center gap-2 bg-green-50 px-3 py-1 rounded-full">
-                          <MapPin className="h-4 w-4 text-green-600" />
-                          {Math.round(totalMiles)} miles
-                        </span>
-                      </div>
-                    </div>
-                    <p className="text-gray-700 text-lg leading-relaxed">
-                      You'll be embarking on an incredible {totalDays}-day adventure, covering {Math.round(totalMiles)} miles 
-                      across {totalLegsCount} amazing segments. Get ready for an unforgettable experience!
-                    </p>
-                  </div>
-
-                  {/* Render days structure if available */}
-                  {days.length > 0 ? (
-                    days.map((day: any, dayIdx: number) => {
-                      // Safely extract day info with fallbacks
-                      const dayLegs = Array.isArray(day.legs) ? day.legs : [];
-                      const dayNumber = day.day ?? dayIdx + 1;
-                      const dayTitle = day.title || `Day ${dayNumber}`;
-                      const dayDate = day.date ? new Date(day.date).toLocaleDateString('en-US', { 
-                        weekday: 'short', 
-                        month: 'short', 
-                        day: 'numeric' 
-                      }) : '';
-                      
-                      console.log(`Rendering Day ${dayNumber}:`, dayTitle, `with ${dayLegs.length} legs`);
-                      
-                      return (
-                        <div key={`day-${dayIdx}-${dayNumber}`} className="space-y-4">
-                          {/* Day Header */}
-                          <div className="bg-gradient-to-r from-purple-500 to-pink-500 text-white rounded-xl p-4 shadow-lg">
-                            <h3 className="text-xl font-bold">{dayTitle}</h3>
-                            {dayDate && <p className="text-sm opacity-90 mt-1">{dayDate}</p>}
+                <div key={idx} className="space-y-4">
+                  {/* Trip Summary Header */}
+                  <Card className="bg-gradient-to-r from-indigo-500 to-purple-600 text-white shadow-xl">
+                    <CardContent className="p-6">
+                      <h2 className="text-2xl font-bold mb-3">Your {days.length}-Day Adventure</h2>
+                      <div className="flex gap-6 text-sm">
+                        <div className="flex items-center gap-2">
+                          <Clock className="h-5 w-5" />
+                          <span>{summary.total_days || days.length} days</span>
+                        </div>
+                        {summary.total_distance_miles && (
+                          <div className="flex items-center gap-2">
+                            <MapPin className="h-5 w-5" />
+                            <span>{Math.round(summary.total_distance_miles)} miles</span>
                           </div>
-                          
-                          {/* Day's Legs */}
+                        )}
+                      </div>
+                    </CardContent>
+                  </Card>
+
+                  {/* Day-by-Day Itinerary */}
+                  {days.map((day: any, dayIdx: number) => {
+                    const dayLegs = Array.isArray(day.legs) ? day.legs : [];
+                    const dayNumber = day.day ?? dayIdx + 1;
+                    const dayTitle = day.title || `Day ${dayNumber}`;
+                    const dayDate = day.date ? new Date(day.date).toLocaleDateString('en-US', { 
+                      weekday: 'long', 
+                      month: 'long', 
+                      day: 'numeric',
+                      year: 'numeric'
+                    }) : '';
+                    
+                    // Calculate day totals
+                    const dayDuration = dayLegs.reduce((acc: number, leg: any) => acc + (Number(leg.duration_minutes) || 0), 0);
+                    const dayDistance = dayLegs.reduce((acc: number, leg: any) => acc + (Number(leg.distance_miles) || 0), 0);
+                    
+                    console.log(`Rendering Day ${dayNumber} with ${dayLegs.length} activities`);
+                    
+                    return (
+                      <Card key={`day-${dayNumber}`} className="overflow-hidden shadow-lg">
+                        {/* Day Header */}
+                        <div className="bg-gradient-to-r from-purple-600 to-pink-600 text-white p-5">
+                          <div className="flex items-center justify-between">
+                            <div>
+                              <h3 className="text-2xl font-bold">{dayTitle}</h3>
+                              {dayDate && <p className="text-sm opacity-90 mt-1">{dayDate}</p>}
+                            </div>
+                            <div className="text-right text-sm">
+                              <div className="font-semibold">{dayLegs.length} activities</div>
+                              <div className="opacity-90">
+                                {dayDuration > 0 && `${Math.floor(dayDuration / 60)}h ${dayDuration % 60}m`}
+                                {dayDistance > 0 && ` • ${Math.round(dayDistance)} mi`}
+                              </div>
+                            </div>
+                          </div>
+                        </div>
+
+                        {/* Day Activities */}
+                        <CardContent className="p-5 space-y-3">
                           {dayLegs.length > 0 ? (
                             dayLegs.map((leg: any, legIdx: number) => {
-                              // Handle undefined/null leg gracefully
-                              if (!leg) {
-                                console.warn(`Leg ${legIdx} in Day ${dayNumber} is null/undefined`);
-                                return null;
-                              }
+                              if (!leg) return null;
                               
                               const modeEmojiMap: Record<string, string> = {
-                                'car': '🚗',
-                                'train': '🚂', 
-                                'bus': '🚌',
-                                'plane': '✈️',
-                                'walk': '🚶',
-                                'bike': '🚴',
-                                'taxi': '🚕',
-                                'metro': '🚇',
-                                'boat': '⛵',
-                                'hiking': '🥾'
+                                'car': '🚗', 'train': '🚂', 'bus': '🚌', 'plane': '✈️',
+                                'walk': '🚶', 'bike': '🚴', 'taxi': '🚕', 'metro': '🚇',
+                                'boat': '⛵', 'hiking': '🥾'
                               };
                               
                               const mode = (leg.mode || 'unknown').toLowerCase();
                               const modeEmoji = modeEmojiMap[mode] || '🚀';
-                              
-                              // Safely extract from/to info
                               const fromName = (typeof leg.from === 'object' ? leg.from?.name : leg.from) || 'Start';
-                              const toName = (typeof leg.to === 'object' ? leg.to?.name : leg.to) || 'Destination';
+                              const toName = (typeof leg.to === 'object' ? leg.to?.name : leg.to) || 'End';
                               const fromTime = (typeof leg.from === 'object' ? leg.from?.time : '') || '';
                               const toTime = (typeof leg.to === 'object' ? leg.to?.time : '') || '';
-                              
-                              // Safely extract numeric values
                               const durationMinutes = Number(leg.duration_minutes) || 0;
-                              const distanceMiles = Number(leg.distance_miles) || Number(leg.distance_km) * 0.621371 || 0;
-                              
-                              console.log(`  Leg ${legIdx + 1}: ${fromName} -> ${toName} (${mode})`);
+                              const distanceMiles = Number(leg.distance_miles) || 0;
                               
                               return (
-                                <Card key={`day-${dayIdx}-leg-${legIdx}`} className="bg-white border-2 border-gray-200 shadow-lg">
-                                  <CardContent className="p-6">
-                                    <div className="flex items-start justify-between mb-4">
-                                      <div className="flex-1">
-                                        <div className="flex items-center gap-3 mb-2">
-                                          <span className="text-2xl">{modeEmoji}</span>
-                                          <div>
-                                            <h4 className="font-bold text-xl text-gray-800">
-                                              {fromName} → {toName}
-                                            </h4>
-                                            {(fromTime || toTime) && (
-                                              <p className="text-sm text-gray-500">
-                                                {fromTime && `Depart: ${fromTime}`}
-                                                {fromTime && toTime && ' • '}
-                                                {toTime && `Arrive: ${toTime}`}
-                                              </p>
-                                            )}
-                                          </div>
-                                          <Badge variant="outline" className="bg-blue-50 text-blue-700 border-blue-200">
-                                            {mode.toUpperCase()}
-                                          </Badge>
-                                        </div>
-                                        {leg.description && (
-                                          <p className="text-gray-600 text-base mb-3 ml-11">
-                                            {leg.description}
-                                          </p>
+                                <div 
+                                  key={`d${dayNumber}-l${legIdx}`}
+                                  className="border-l-4 border-purple-400 pl-4 py-3 bg-gray-50 rounded-r-lg hover:bg-gray-100 transition-colors"
+                                >
+                                  {/* Activity Header */}
+                                  <div className="flex items-start gap-3 mb-2">
+                                    <span className="text-3xl">{modeEmoji}</span>
+                                    <div className="flex-1 min-w-0">
+                                      <div className="flex items-center gap-2 flex-wrap">
+                                        <h4 className="font-bold text-lg text-gray-900 truncate">
+                                          {fromName} → {toName}
+                                        </h4>
+                                        <Badge variant="secondary" className="text-xs">
+                                          {mode}
+                                        </Badge>
+                                      </div>
+                                      
+                                      {/* Time Info */}
+                                      {(fromTime || toTime) && (
+                                        <p className="text-sm text-gray-600 mt-1">
+                                          {fromTime && <span>🕐 {fromTime}</span>}
+                                          {fromTime && toTime && <span className="mx-2">→</span>}
+                                          {toTime && <span>🕐 {toTime}</span>}
+                                        </p>
+                                      )}
+                                      
+                                      {/* Description */}
+                                      {leg.description && (
+                                        <p className="text-sm text-gray-700 mt-2 leading-relaxed">
+                                          {leg.description}
+                                        </p>
+                                      )}
+                                      
+                                      {/* Duration & Distance */}
+                                      <div className="flex gap-4 mt-2 text-xs text-gray-600">
+                                        {durationMinutes > 0 && (
+                                          <span className="flex items-center gap-1">
+                                            <Clock className="h-3 w-3" />
+                                            {durationMinutes} min
+                                          </span>
+                                        )}
+                                        {distanceMiles > 0 && (
+                                          <span className="flex items-center gap-1">
+                                            <MapPin className="h-3 w-3" />
+                                            {Math.round(distanceMiles)} mi
+                                          </span>
                                         )}
                                       </div>
                                     </div>
-                                    
-                                    <div className="grid grid-cols-2 gap-4 mt-4 p-4 bg-gray-50 rounded-lg ml-11">
-                                      <div className="text-center">
-                                        <div className="text-2xl font-bold text-blue-600">
-                                          {durationMinutes > 0 ? Math.round(durationMinutes) : '-'}
-                                        </div>
-                                        <div className="text-sm text-gray-600">minutes</div>
-                                      </div>
-                                      <div className="text-center">
-                                        <div className="text-2xl font-bold text-green-600">
-                                          {distanceMiles > 0 ? Math.round(distanceMiles) : '-'}
-                                        </div>
-                                        <div className="text-sm text-gray-600">miles</div>
-                                      </div>
-                                    </div>
-                                  </CardContent>
-                                </Card>
+                                  </div>
+                                </div>
                               );
                             })
                           ) : (
-                            <div className="text-center py-8 text-gray-500">
-                              No activities planned for this day
-                            </div>
+                            <p className="text-center text-gray-500 py-4">No activities planned</p>
                           )}
-                        </div>
-                      );
-                    })
-                  ) : (
-                    /* Fallback to flat legs structure for backward compatibility */
-                    flatLegs.map((leg: any, i: number) => {
-                      const dayStart = i + 1;
-                      const dayEnd = i + 2;
-                      const modeEmojiMap = {
-                        'car': '🚗',
-                        'train': '🚂', 
-                        'bus': '🚌',
-                        'plane': '✈️',
-                        'walk': '🚶'
-                      };
-                      const modeEmoji = modeEmojiMap[leg.mode as keyof typeof modeEmojiMap] || '🚀';
-                      
-                      return (
-                        <Card key={i} className="bg-white border-2 border-gray-200 shadow-lg">
-                          <CardContent className="p-6">
-                            <div className="flex items-start justify-between mb-4">
-                              <div className="flex-1">
-                                <div className="flex items-center gap-3 mb-2">
-                                  <span className="text-2xl">{modeEmoji}</span>
-                                  <h4 className="font-bold text-xl text-gray-800">
-                                    Day {dayStart} to Day {dayEnd}
-                                  </h4>
-                                  <Badge variant="outline" className="bg-blue-50 text-blue-700 border-blue-200">
-                                    {leg.mode.toUpperCase()}
-                                  </Badge>
-                                </div>
-                                <p className="text-gray-600 text-lg mb-3">
-                                  You'll be traveling from <span className="font-semibold text-gray-800">{leg.from?.name || leg.from}</span> to{' '}
-                                  <span className="font-semibold text-gray-800">{leg.to?.name || leg.to}</span>
-                                </p>
-                                <p className="text-gray-500 text-sm leading-relaxed">
-                                  This {Math.round(leg.duration_minutes)}-minute journey will take you through {Math.round(leg.distance_miles || leg.distance_km * 0.621371)} miles of beautiful scenery. 
-                                  Perfect time to relax, enjoy the views, and maybe catch up on some reading or podcasts!
-                                </p>
-                              </div>
-                            </div>
-                            
-                            <div className="grid grid-cols-2 gap-4 mt-4 p-4 bg-gray-50 rounded-lg">
-                              <div className="text-center">
-                                <div className="text-2xl font-bold text-blue-600">{Math.round(leg.duration_minutes)}</div>
-                                <div className="text-sm text-gray-600">minutes</div>
-                              </div>
-                              <div className="text-center">
-                                <div className="text-2xl font-bold text-green-600">{Math.round(leg.distance_miles || leg.distance_km * 0.621371)}</div>
-                                <div className="text-sm text-gray-600">miles</div>
-                              </div>
-                            </div>
-                          </CardContent>
-                        </Card>
-                      );
-                    })
+                        </CardContent>
+                      </Card>
+                    );
+                  })}
+
+                  {/* Trip Summary Footer */}
+                  {summary && (
+                    <Card className="bg-gradient-to-r from-green-50 to-blue-50 shadow-lg">
+                      <CardContent className="p-6 text-center">
+                        <h3 className="text-xl font-bold text-gray-800 mb-2">🎉 Trip Summary</h3>
+                        <p className="text-gray-700">
+                          Your {days.length}-day adventure is ready!
+                          {summary.total_distance_miles && ` Covering ${Math.round(summary.total_distance_miles)} miles`}
+                          {summary.total_duration_minutes && ` over ${Math.floor(summary.total_duration_minutes / 60)} hours`}.
+                        </p>
+                      </CardContent>
+                    </Card>
                   )}
-                  
-                  {/* Journey Conclusion */}
-                  <div className="bg-gradient-to-r from-blue-50 to-green-50 border-2 border-blue-200 rounded-xl p-6 shadow-lg">
-                    <h4 className="font-bold text-xl text-gray-800 mb-3">🎉 Journey Complete!</h4>
-                    <p className="text-gray-700 leading-relaxed">
-                      Congratulations! You've successfully planned an epic {totalDays}-day adventure covering {Math.round(totalMiles)} miles. 
-                      This journey will create memories that last a lifetime. Safe travels and enjoy every moment!
-                    </p>
-                  </div>
                 </div>
               );
             })
           ) : (
-            <div className="text-center py-16 bg-white rounded-xl border-2 border-gray-200 shadow-lg">
-              <div className="text-6xl mb-4">🗺️</div>
-              <h3 className="text-xl font-semibold text-gray-700 mb-2">No Itinerary Yet</h3>
-              <p className="text-gray-500">Ask me to create an itinerary and I'll plan your perfect journey!</p>
-            </div>
+            <Card className="shadow-lg">
+              <CardContent className="p-12 text-center">
+                <div className="text-6xl mb-4">🗺️</div>
+                <h3 className="text-2xl font-semibold text-gray-700 mb-2">No Itinerary Yet</h3>
+                <p className="text-gray-500">Ask me to create an itinerary and I'll plan your journey!</p>
+              </CardContent>
+            </Card>
           )}
         </TabsContent>
 
