@@ -19,6 +19,9 @@ export function MapView({ waypoints, selectedItinerary }: MapViewProps) {
   const mapContainer = useRef<HTMLDivElement>(null);
   const map = useRef<mapboxgl.Map | null>(null);
   const [mapLoaded, setMapLoaded] = useState(false);
+  const [routeData, setRouteData] = useState<any | null>(null);
+  const originMarkerRef = useRef<mapboxgl.Marker | null>(null);
+  const destinationMarkerRef = useRef<mapboxgl.Marker | null>(null);
 
   useEffect(() => {
     if (!mapContainer.current || map.current) return;
@@ -68,6 +71,79 @@ export function MapView({ waypoints, selectedItinerary }: MapViewProps) {
     };
   }, []);
 
+  // Poll backend for latest route JSON and store locally
+  useEffect(() => {
+    let isMounted = true;
+    const fetchLatestRoute = async () => {
+      try {
+        const res = await fetch('http://localhost:8000/route/latest');
+        if (res.status === 204) return; // no route yet
+        if (!res.ok) return;
+        const json = await res.json();
+        if (!isMounted) return;
+        setRouteData(json);
+      } catch {}
+    };
+
+    fetchLatestRoute();
+    const id = setInterval(fetchLatestRoute, 3000);
+    return () => { isMounted = false; clearInterval(id); };
+  }, []);
+
+  // Render MCP route and markers when routeData updates
+  useEffect(() => {
+    if (!map.current || !mapLoaded || !routeData) return;
+    const m = map.current;
+    const route = routeData?.routes?.[0];
+    const geometry = route?.geometry; // GeoJSON LineString
+    if (!geometry) return;
+
+    const feature = { type: 'Feature', properties: {}, geometry } as any;
+    const collection = { type: 'FeatureCollection', features: [feature] } as any;
+
+    // Update or add source/layer
+    if (m.getSource('route')) {
+      (m.getSource('route') as mapboxgl.GeoJSONSource).setData(collection as any);
+    } else {
+      m.addSource('route', { type: 'geojson', data: collection } as any);
+      if (!m.getLayer('route')) {
+        m.addLayer({
+          id: 'route',
+          type: 'line',
+          source: 'route',
+          layout: { 'line-join': 'round', 'line-cap': 'round' },
+          paint: { 'line-color': '#4F46E5', 'line-width': 5 },
+        } as any);
+      }
+    }
+
+    const coords: [number, number][] = geometry.coordinates || [];
+    if (coords.length >= 2) {
+      const start = coords[0];
+      const end = coords[coords.length - 1];
+
+      originMarkerRef.current?.remove();
+      destinationMarkerRef.current?.remove();
+
+      const makeDot = (color: string) => {
+        const el = document.createElement('div');
+        el.style.width = '14px';
+        el.style.height = '14px';
+        el.style.borderRadius = '50%';
+        el.style.backgroundColor = color;
+        el.style.border = '2px solid white';
+        el.style.boxShadow = '0 0 6px rgba(0,0,0,0.5)';
+        return el;
+      };
+
+      originMarkerRef.current = new mapboxgl.Marker(makeDot('#22c55e')).setLngLat(start as any).addTo(m);
+      destinationMarkerRef.current = new mapboxgl.Marker(makeDot('#ef4444')).setLngLat(end as any).addTo(m);
+
+      const bounds = new mapboxgl.LngLatBounds();
+      coords.forEach((c) => bounds.extend(c as any));
+      m.fitBounds(bounds, { padding: 60 });
+    }
+  }, [routeData, mapLoaded]);
   useEffect(() => {
     if (!map.current || !mapLoaded) return;
 
@@ -164,21 +240,6 @@ export function MapView({ waypoints, selectedItinerary }: MapViewProps) {
           </div>
         </div>
       )}
-      <div className="absolute top-4 left-4 bg-black/70 text-white px-3 py-2 rounded-lg text-sm backdrop-blur-sm">
-        <div className="font-semibold mb-1">Legend</div>
-        <div className="flex items-center gap-2 text-xs">
-          <div className="w-3 h-3 rounded-full bg-green-500"></div>
-          <span>Origin</span>
-        </div>
-        <div className="flex items-center gap-2 text-xs">
-          <div className="w-3 h-3 rounded-full bg-blue-500"></div>
-          <span>Waypoint</span>
-        </div>
-        <div className="flex items-center gap-2 text-xs">
-          <div className="w-3 h-3 rounded-full bg-red-500"></div>
-          <span>Destination</span>
-        </div>
-      </div>
     </div>
   );
 }

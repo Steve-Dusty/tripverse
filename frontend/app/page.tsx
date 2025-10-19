@@ -7,23 +7,14 @@ import { ActionsBar } from '@/components/actions/ActionsBar';
 import { DetailsPane } from '@/components/details/DetailsPane';
 import { ChevronLeft, ChevronRight } from 'lucide-react';
 import { Button } from '@/components/ui/button';
-import {
-  mockWaypoints,
-  mockItineraries,
-  mockStays,
-  mockLivingInfo,
-  Itinerary,
-} from '@/lib/mock-data';
+import { Itinerary } from '@/lib/mock-data';
 
 export default function Dashboard() {
-  const [selectedItinerary, setSelectedItinerary] = useState<Itinerary | undefined>(mockItineraries[0]);
+  const [selectedItinerary, setSelectedItinerary] = useState<Itinerary | undefined>(undefined);
   const [rightCollapsed, setRightCollapsed] = useState(false);
 
   useEffect(() => {
-    // Auto-select first itinerary
-    if (!selectedItinerary && mockItineraries.length > 0) {
-      setSelectedItinerary(mockItineraries[0]);
-    }
+    // no-op: itinerary will be set by real data later
   }, [selectedItinerary]);
 
   return (
@@ -50,10 +41,7 @@ export default function Dashboard() {
 
         {/* Map - Covers entire remaining space */}
         <main className="flex-1 relative h-full">
-          <MapView
-            waypoints={mockWaypoints}
-            selectedItinerary={selectedItinerary}
-          />
+          <MapView waypoints={[]} selectedItinerary={selectedItinerary} />
         </main>
 
         {/* Right Sidebar - OVERLAY that covers the map */}
@@ -80,12 +68,7 @@ export default function Dashboard() {
             >
               <ChevronRight className="h-4 w-4" />
             </Button>
-            <DetailsPane
-              selectedItinerary={selectedItinerary}
-              stays={mockStays}
-              livingInfo={mockLivingInfo}
-              documents={[]}
-            />
+            <DetailsPane selectedItinerary={selectedItinerary} stays={[]} livingInfo={{ neighborhoods: [], essentials: [] }} documents={[]} />
           </aside>
         )}
       </div>

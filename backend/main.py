@@ -77,6 +77,7 @@ chat_proto = Protocol("ChatProtocol", "0.1.0")
 
 # Conversation history
 conversation_history = []
+last_directions_json = None
 
 def is_travel_question(message: str) -> bool:
     """Check if the message is travel-related"""
@@ -204,6 +205,13 @@ def mapbox_directions(profile: str, coordinates: list, alternatives: bool = Fals
 async def root():
     return {"message": "Fetch.ai Chat Agent + WebSocket Server Ready!"}
 
+@app.get("/route/latest")
+async def get_latest_route():
+    if last_directions_json is None:
+        from fastapi import Response
+        return Response(status_code=204)
+    return last_directions_json
+
 @app.websocket("/ws/chat")
 async def websocket_endpoint(websocket: WebSocket):
     """WebSocket endpoint for real-time chat"""
@@ -270,7 +278,22 @@ async def websocket_endpoint(websocket: WebSocket):
                     # Get directions
                     directions = mapbox_directions("driving", [start, end])
                     print("Mapbox directions JSON:", directions)
-                    response = "okay i provided you with the route"
+                    global last_directions_json
+                    last_directions_json = directions
+                    
+                    # Extract route information from JSON
+                    if directions.get("routes") and len(directions["routes"]) > 0:
+                        route = directions["routes"][0]
+                        duration = route.get("duration", 0) / 60  # Convert to minutes
+                        distance = route.get("distance", 0) / 1000  # Convert to km
+                        
+                        response = f"""🗺️ **Route Found:**
+📍 From: {origin} → {destination}
+⏱️ Duration: {duration:.1f} minutes
+📏 Distance: {distance:.1f} km
+🚗 Driving route available"""
+                    else:
+                        response = "No route found between these locations"
                 except Exception as e:
                     print("Travel handling error:", e)
                     response = f"{e}"
