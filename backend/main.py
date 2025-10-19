@@ -7,6 +7,7 @@ import os
 import json
 import asyncio
 import sys
+import re
 import requests
 from datetime import datetime
 from uuid import uuid4
@@ -429,39 +430,70 @@ async def websocket_endpoint(websocket: WebSocket):
                         "Return ONLY valid JSON, no other text."
                     )
 
-                    gemini_response = model.generate_content(
-                        prompt,
-                        generation_config=genai.types.GenerationConfig(
-                            temperature=0.3,
-                            max_output_tokens=4000,
-                            response_mime_type="application/json",
+                    try:
+                        gemini_response = model.generate_content(
+                            prompt,
+                            generation_config=genai.types.GenerationConfig(
+                                temperature=0.3,
+                                max_output_tokens=4000,
+                                response_mime_type="application/json",
+                            ),
+                            safety_settings=[
+                                {
+                                    "category": "HARM_CATEGORY_HARASSMENT",
+                                    "threshold": "BLOCK_NONE",
+                                },
+                                {
+                                    "category": "HARM_CATEGORY_HATE_SPEECH",
+                                    "threshold": "BLOCK_NONE",
+                                },
+                                {
+                                    "category": "HARM_CATEGORY_SEXUALLY_EXPLICIT",
+                                    "threshold": "BLOCK_NONE",
+                                },
+                                {
+                                    "category": "HARM_CATEGORY_DANGEROUS_CONTENT",
+                                    "threshold": "BLOCK_NONE",
+                                },
+                            ]
                         )
-                    )
+                    except Exception as e:
+                        print(f"Gemini generation error: {e}")
+                        # Create fallback itinerary
+                        gemini_response = None
 
                     # Safe extraction like other paths
                     raw = ""
-                    try:
-                        if hasattr(gemini_response, "text") and gemini_response.text:
-                            raw = gemini_response.text
-                        else:
-                            # Try candidate parts
-                            candidates = getattr(gemini_response, "candidates", []) or []
-                            for cand in candidates:
-                                content = getattr(cand, "content", None)
-                                parts = getattr(content, "parts", []) if content else []
-                                for part in parts:
-                                    t = getattr(part, "text", None) if hasattr(part, "text") else (part.get("text") if isinstance(part, dict) else None)
-                                    if t:
-                                        raw = t
+                    if gemini_response:
+                        try:
+                            if hasattr(gemini_response, "text") and gemini_response.text:
+                                raw = gemini_response.text
+                            else:
+                                # Try candidate parts
+                                candidates = getattr(gemini_response, "candidates", []) or []
+                                for cand in candidates:
+                                    content = getattr(cand, "content", None)
+                                    parts = getattr(content, "parts", []) if content else []
+                                    for part in parts:
+                                        t = getattr(part, "text", None) if hasattr(part, "text") else (part.get("text") if isinstance(part, dict) else None)
+                                        if t:
+                                            raw = t
+                                            break
+                                    if raw:
                                         break
-                                if raw:
-                                    break
-                    except Exception as e:
-                        print(f"Gemini extraction error: {e}")
+                        except Exception as e:
+                            print(f"Gemini extraction error: {e}")
                     
                     print(f"Raw Gemini response: {raw}")
                     
                     import json as _json
+                    
+                    # Extract number of days from user message
+                    num_days = 3  # default
+                    day_match = re.search(r'(\d+)\s*day', user_message.lower())
+                    if day_match:
+                        num_days = int(day_match.group(1))
+                    
                     parsed = {}
                     if raw:
                         try:
@@ -477,41 +509,79 @@ async def websocket_endpoint(websocket: WebSocket):
                         except _json.JSONDecodeError as e:
                             print(f"JSON parse error: {e}")
                             print(f"Raw text that failed: {raw}")
-                            # Create a fallback itinerary with proper structure
-                            fallback_legs = []
-                            if last_route_summary:
-                                fallback_legs.append({
-                                    "mode": "car",
-                                    "from": {"name": last_route_summary['origin'], "time": "09:00"},
-                                    "to": {"name": last_route_summary['destination'], "time": "12:00"},
-                                    "duration_minutes": last_route_summary['duration_minutes'],
-                                    "distance_miles": last_route_summary['distance_miles'],
-                                    "description": f"Drive from {last_route_summary['origin']} to {last_route_summary['destination']}"
-                                })
+                            raw = ""  # Force fallback
+                    
+                    # Create fallback if no valid JSON
+                    if not raw or not parsed or not parsed.get("days"):
+                        print(f"Creating fallback itinerary for {num_days} days")
+                        
+                        # Create fallback days
+                        fallback_days = []
+                        for day_num in range(1, num_days + 1):
+                            # Create sample activities for each day
+                            if last_route_summary and day_num == 1:
+                                legs = [
+                                    {
+                                        "mode": "car",
+                                        "from": {"name": last_route_summary['origin'], "time": "09:00"},
+                                        "to": {"name": last_route_summary['destination'], "time": "12:00"},
+                                        "duration_minutes": last_route_summary['duration_minutes'],
+                                        "distance_miles": last_route_summary['distance_miles'],
+                                        "description": f"Drive from {last_route_summary['origin']} to {last_route_summary['destination']}"
+                                    },
+                                    {
+                                        "mode": "walk",
+                                        "from": {"name": "Hotel", "time": "14:00"},
+                                        "to": {"name": "City Center", "time": "14:30"},
+                                        "duration_minutes": 30,
+                                        "distance_miles": 1.2,
+                                        "description": "Explore the city center"
+                                    }
+                                ]
                             else:
-                                fallback_legs.append({
-                                    "mode": "car",
-                                    "from": {"name": "Start", "time": "09:00"},
-                                    "to": {"name": "Destination", "time": "12:00"},
-                                    "duration_minutes": 180,
-                                    "distance_miles": 100,
-                                    "description": "Travel to destination"
-                                })
+                                legs = [
+                                    {
+                                        "mode": "walk",
+                                        "from": {"name": "Hotel", "time": "09:00"},
+                                        "to": {"name": "Local Attraction", "time": "09:30"},
+                                        "duration_minutes": 30,
+                                        "distance_miles": 1.5,
+                                        "description": f"Morning sightseeing on day {day_num}"
+                                    },
+                                    {
+                                        "mode": "car",
+                                        "from": {"name": "Attraction", "time": "14:00"},
+                                        "to": {"name": "Restaurant Area", "time": "14:20"},
+                                        "duration_minutes": 20,
+                                        "distance_miles": 5,
+                                        "description": "Lunch and afternoon activities"
+                                    }
+                                ]
                             
-                            parsed = {
-                                "type": "itinerary",
-                                "days": [{
-                                    "day": 1,
-                                    "date": datetime.utcnow().strftime("%Y-%m-%d"),
-                                    "title": "Day 1: Travel",
-                                    "legs": fallback_legs
-                                }],
-                                "summary": {
-                                    "total_days": 1,
-                                    "total_duration_minutes": fallback_legs[0]["duration_minutes"],
-                                    "total_distance_miles": fallback_legs[0]["distance_miles"]
-                                }
+                            from datetime import timedelta
+                            day_date = (datetime.utcnow() + timedelta(days=day_num-1)).strftime("%Y-%m-%d")
+                            
+                            fallback_days.append({
+                                "day": day_num,
+                                "date": day_date,
+                                "title": f"Day {day_num}: Exploration",
+                                "legs": legs
+                            })
+                        
+                        # Calculate totals
+                        total_duration = sum(leg["duration_minutes"] for day in fallback_days for leg in day["legs"])
+                        total_distance = sum(leg["distance_miles"] for day in fallback_days for leg in day["legs"])
+                        
+                        parsed = {
+                            "type": "itinerary",
+                            "days": fallback_days,
+                            "summary": {
+                                "total_days": num_days,
+                                "total_duration_minutes": total_duration,
+                                "total_distance_miles": total_distance
                             }
+                        }
+                        print(f"Created fallback with {len(fallback_days)} days")
                     
                     global last_itinerary_json
                     last_itinerary_json = parsed
