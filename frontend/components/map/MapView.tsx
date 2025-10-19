@@ -7,7 +7,8 @@ import { Waypoint, TripLeg } from '@/lib/mock-data';
 
 // Mapbox token and style
 const MAPBOX_TOKEN = 'pk.eyJ1Ijoic3RldmVkdXN0eSIsImEiOiJjbWd4am05Z2IxZXhyMmtwdTg1cnU4cmYxIn0.zpfFRf-6xH6ivorwg_ZJ3w';
-const MAPBOX_STYLE = 'mapbox://styles/stevedusty/cmgxjv2fy006001smfwbi0u3a';
+// Using Mapbox Standard Style (v3.0 beta) - no style URL needed, defaults to Standard
+const MAPBOX_STYLE = 'mapbox://styles/mapbox/standard-beta';
 
 interface MapViewProps {
   waypoints: Waypoint[];
@@ -30,6 +31,8 @@ export function MapView({ waypoints, selectedItinerary }: MapViewProps) {
       style: MAPBOX_STYLE,
       center: [-115.1398, 36.1699], // Center on Vegas area
       zoom: 5,
+      pitch: 45, // 3D tilt for better 3D effect
+      bearing: 0, // Rotation angle
       attributionControl: false, // Remove watermark
       projection: 'globe' as any, // 3D globe view
     });
@@ -37,6 +40,22 @@ export function MapView({ waypoints, selectedItinerary }: MapViewProps) {
     map.current.on('load', () => {
       console.log('Map loaded successfully!');
       setMapLoaded(true);
+      
+      // Configure Mapbox Standard Style features
+      try {
+        // Set lighting preset to dusk for a more dramatic look
+        map.current.setConfigProperty('basemap', 'lightPreset', 'dusk');
+        
+        // Configure label visibility for cleaner look
+        map.current.setConfigProperty('basemap', 'showPlaceLabel', true);
+        map.current.setConfigProperty('basemap', 'showRoadLabels', true);
+        map.current.setConfigProperty('basemap', 'showPointOfInterestLabels', true);
+        map.current.setConfigProperty('basemap', 'showTransitLabels', false);
+        
+        console.log('Mapbox Standard Style configured successfully!');
+      } catch (error) {
+        console.warn('Could not configure Standard Style features:', error);
+      }
     });
 
     map.current.on('error', (e) => {

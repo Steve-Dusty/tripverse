@@ -1,0 +1,9 @@
+# Basic Fetch.ai Chat Agent
+uagents==0.8.0
+uagents-core==0.8.0
+google-generativeai==0.8.3
+python-dotenv==1.0.1
+
+# WebSocket Server for Frontend
+fastapi==0.115.6
+uvicorn==0.32.1
