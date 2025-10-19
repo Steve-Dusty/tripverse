@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useRef } from 'react';
+import { useState, useRef, useEffect } from 'react';
 import { Input } from '@/components/ui/input';
 import { Button } from '@/components/ui/button';
 import { Send, Loader2, Paperclip, X, FileText } from 'lucide-react';
@@ -26,6 +26,12 @@ export function ChatPanel() {
   const [isLoading, setIsLoading] = useState(false);
   const [uploadedFiles, setUploadedFiles] = useState<UploadedFile[]>([]);
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const messagesEndRef = useRef<HTMLDivElement>(null);
+
+  // Auto-scroll to bottom when messages change
+  useEffect(() => {
+    messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
+  }, [messages, isLoading]);
 
   const handleFileUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
     const files = e.target.files;
@@ -125,6 +131,8 @@ export function ChatPanel() {
             </div>
           </div>
         )}
+        {/* Auto-scroll target */}
+        <div ref={messagesEndRef} />
       </div>
 
       <div className="border-t-2 border-border bg-card">
