@@ -79,6 +79,7 @@ chat_proto = Protocol("ChatProtocol", "0.1.0")
 conversation_history = []
 last_directions_json = None
 last_route_summary = None
+last_itinerary_json = None
 
 def is_travel_question(message: str) -> bool:
     """Check if the message is travel-related"""
@@ -97,6 +98,9 @@ def is_how_long_followup(message: str) -> bool:
         "how many minutes" in m or
         "how many hours" in m
     )
+
+def is_itinerary_question(message: str) -> bool:
+    return "itinerary" in message.lower()
 
 
 async def chat_with_gemini_and_mapbox(user_message, ctx: Context = None):
@@ -220,6 +224,13 @@ async def get_latest_route():
         return Response(status_code=204)
     return last_directions_json
 
+@app.get("/itinerary/latest")
+async def get_latest_itinerary():
+    if last_itinerary_json is None:
+        from fastapi import Response
+        return Response(status_code=204)
+    return last_itinerary_json
+
 @app.websocket("/ws/chat")
 async def websocket_endpoint(websocket: WebSocket):
     """WebSocket endpoint for real-time chat"""
@@ -313,6 +324,55 @@ async def websocket_endpoint(websocket: WebSocket):
                 except Exception as e:
                     print("Travel handling error:", e)
                     response = f"{e}"
+            elif is_itinerary_question(user_message):
+                try:
+                    # Build compact transcript for context
+                    transcript_lines = []
+                    for t in conversation_history[-10:]:
+                        role = t.get("role", "user").upper()
+                        content = t.get("content", "")
+                        transcript_lines.append(f"{role}: {content}")
+                    context_blob = "\n".join(transcript_lines)
+
+                    prompt = (
+                        "You detect an itinerary planning request.\n"
+                        "Using the conversation context, produce ONLY a strict JSON object with this shape (no prose) if there's multiple waypoints, then append a new JSOn to list:\n"
+                        "[{\n"
+                        "  \"type\": \"itinerary\",\n"
+                        "  \"legs\": [\n"
+                        "    {\n"
+                        "      \"mode\": \"car|train|bus|plane\",\n"
+                        "      \"from\": { \"name\": string },\n"
+                        "      \"to\": { \"name\": string },\n"
+                        "      \"duration_minutes\": number,\n"
+                        "      \"distance_km\": number\n"
+                        "    }\n"
+                        "  ],\n"
+                        "  \"summary\": { \"total_duration_minutes\": number, \"total_distance_km\": number }\n"
+                        "}]\n"
+                        f"Context:\n{context_blob}\n"
+                        f"UserMessage: {user_message}\n"
+                        "Return ONLY JSON."
+                    )
+
+                    gemini_response = model.generate_content(
+                        prompt,
+                        generation_config=genai.types.GenerationConfig(
+                            temperature=0.2,
+                            max_output_tokens=800,
+                            response_mime_type="application/json",
+                        )
+                    )
+
+                    raw = getattr(gemini_response, "text", "") or ""
+                    import json as _json
+                    parsed = _json.loads(raw) if raw else {}
+                    global last_itinerary_json
+                    last_itinerary_json = parsed
+                    response = "just created the itinerary."
+                except Exception as e:
+                    print("Itinerary handling error:", e)
+                    response = f"{e}"
             else:
                 # Regular Gemini response for non-travel questions
                 try:
@@ -322,28 +382,28 @@ async def websocket_endpoint(websocket: WebSocket):
                         km = last_route_summary["distance_km"]
                         response = f"Approximately {mins} minutes (~{(mins/60):.1f} hours), distance about {km} km."
                     else:
-                    # Build compact inline transcript + optional last route summary
-                    transcript_lines = []
-                    for t in conversation_history[-10:]:
-                        role = t.get("role", "user").upper()
-                        content = t.get("content", "")
-                        transcript_lines.append(f"{role}: {content}")
-                    context_blob = "\n".join(transcript_lines)
+                        # Build compact inline transcript + optional last route summary
+                        transcript_lines = []
+                        for t in conversation_history[-10:]:
+                            role = t.get("role", "user").upper()
+                            content = t.get("content", "")
+                            transcript_lines.append(f"{role}: {content}")
+                        context_blob = "\n".join(transcript_lines)
 
-                    route_hint = ""
-                    if last_route_summary:
-                        route_hint = (
-                            f"\nLastRoute: origin={last_route_summary['origin']}, "
-                            f"destination={last_route_summary['destination']}, "
-                            f"duration_minutes={last_route_summary['duration_minutes']}, "
-                            f"distance_km={last_route_summary['distance_km']}"
+                        route_hint = ""
+                        if last_route_summary:
+                            route_hint = (
+                                f"\nLastRoute: origin={last_route_summary['origin']}, "
+                                f"destination={last_route_summary['destination']}, "
+                                f"duration_minutes={last_route_summary['duration_minutes']}, "
+                                f"distance_km={last_route_summary['distance_km']}"
+                            )
+
+                        prompt = (
+                            "You are a helpful assistant. Use the recent transcript to maintain context.\n" \
+                            f"Transcript:\n{context_blob}{route_hint}\n" \
+                            f"USER: {user_message}\nASSISTANT:"
                         )
-
-                    prompt = (
-                        "You are a helpful assistant. Use the recent transcript to maintain context.\n" \
-                        f"Transcript:\n{context_blob}{route_hint}\n" \
-                        f"USER: {user_message}\nASSISTANT:"
-                    )
 
                         gemini_response = model.generate_content(
                             prompt,
