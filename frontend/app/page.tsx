@@ -23,7 +23,7 @@ export default function Dashboard() {
       <header className="h-16 border-b-2 border-border px-6 flex items-center justify-between bg-card shadow-lg">
         <div>
           <h1 className="text-2xl font-bold text-primary drop-shadow-lg">
-            AI Travel Planner
+            Tripverse
           </h1>
           <p className="text-xs text-muted-foreground">
             Smart itinerary planning powered by AI
